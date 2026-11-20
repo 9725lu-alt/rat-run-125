@@ -10,9 +10,13 @@ Controls: WASD / arrows run · Shift dash · E sniff · Space dive · P pause ·
 
 The street grid (buildings, sidewalks, roads, lamps, trash sources, bins, subway entrances) comes from the Rat City simulation (Spatial AI, Columbia GSAPP; Ryan Fu, Lu Liu, Yifan Zhao): https://yz5149-stack.github.io/spatial_ai_gsapp/20261119_rats/ — built from NYC Open Data and OpenStreetMap (ODbL). `src/sim/` and `data/` are copied from that project.
 
-Tuning: every gameplay number lives in `config.js`. Open the game with `?tune` (https://9725lu-alt.github.io/rat-run-125/?tune), or press the backquote key when running it locally, to get a slider for each value; *Save* copies the changed values as a block to paste to Claude.
+Settings: players get sound, difficulty (easy, normal, hard), language, screen shake and full screen; the best score and settings stay in the browser.
 
-itch.io: `bash tools/share.sh` builds `dist/` without the tweak panel and zips it as `rat-run-125-web.zip`, checked against itch.io's limits for HTML games. Upload the zip as an HTML game.
+Tuning (developers): every gameplay number lives in `config.js`. Open the game with `?tune` for a slider panel; *Save* copies the changed values to paste to Claude.
+
+Design: the interface was redesigned with [Hallmark](https://github.com/Nutlope/hallmark) (MIT), theme *pasteup* on its black-wall board: every screen is a flyer pasted on a plywood construction wall. Its scripts were not run; its rules were applied by hand.
+
+itch.io: `bash tools/share.sh` builds `dist/` without the developer panel and zips it as `rat-run-125-web.zip`, checked against itch.io's limits for HTML games. Upload the zip as an HTML game.
 
 The tweak panel (`tune.js`) and `tools/itch-zip.sh` are adapted from [Claude Code Game Studios](https://github.com/donchitos/claude-code-game-studios) (MIT License, © 2026 Donchitos).
 

@@ -4,77 +4,112 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>Rat Run 125</title>
-  <meta name="description" content="Rat Run 125: play a rat on the real 125th Street & Amsterdam Avenue at night. Grab trash, dodge flashlights, cars and cats, and stash it before dawn.">
-  <meta name="theme-color" content="#0b0920">
+  <meta name="description" content="Play a rat on the real 125th Street and Amsterdam Avenue at night. Raid the trash, cross on the walk signal, dodge the patrol and stash enough before dawn.">
+  <meta name="theme-color" content="#211c18">
+  <meta property="og:title" content="Rat Run 125">
+  <meta property="og:description" content="A night on the real 125th Street, played as a rat.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://9725lu-alt.github.io/rat-run-125/icons/share.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="game.css?v=1">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=League+Gothic&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="game.css?v=4">
 </head>
 <body>
-  <canvas id="view"></canvas>
+  <!-- drawn icons, used through <svg><use href="#i-…"></svg> -->
+  <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2.2 0 3.6 1.2 5.4 3.2 1.8-2 3.2-3.2 5.4-3.2 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-speed" viewBox="0 0 24 24"><path d="M3 7h8M1 12h9M3 17h8M13 5l8 7-8 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"/></symbol>
+    <symbol id="i-cap" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 9v8M8 13h8" stroke="currentColor" stroke-width="2.4"/></symbol>
+    <symbol id="i-vision" viewBox="0 0 24 24"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="12" r="3.4" fill="currentColor"/></symbol>
+    <symbol id="i-fur" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2.2 0 3.6 1.2 5.4 3.2 1.8-2 3.2-3.2 5.4-3.2 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 9v7M8.5 12.5h7" stroke="currentColor" stroke-width="2.2"/></symbol>
+    <symbol id="i-sniff" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.6" fill="currentColor"/><path d="M10 8a6 6 0 0 1 0 8M14 5a10 10 0 0 1 0 14M18 2.5a13.5 13.5 0 0 1 0 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24"><ellipse cx="12" cy="16" rx="5" ry="4.2" fill="currentColor"/><circle cx="5.5" cy="10" r="2.2" fill="currentColor"/><circle cx="9.5" cy="6" r="2.2" fill="currentColor"/><circle cx="14.5" cy="6" r="2.2" fill="currentColor"/><circle cx="18.5" cy="10" r="2.2" fill="currentColor"/></symbol>
+    <symbol id="i-lungs" viewBox="0 0 24 24"><path d="M2 8h12a3 3 0 1 0-3-3M2 13h17a3 3 0 1 1-3 3M2 18h8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.2 6.8.8-5 4.6 1.3 6.7L12 17.5l-6 3.3 1.3-6.7-5-4.6 6.8-.8z" fill="currentColor"/></symbol>
+    <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2.4"/></symbol>
+  </svg>
 
-  <!-- HUD -->
+  <canvas id="view" aria-label="The street at night"></canvas>
+
+  <!-- HUD: slips pasted over the night -->
   <div class="hud" id="hud" hidden>
     <div class="hud-left">
-      <div class="pill night"><span data-t="night">Night</span> <b id="h-night">1</b></div>
-      <div class="pill score"><b id="h-score">0</b> <span data-t="pts">pts</span></div>
+      <p class="slip"><span data-t="night">Night</span> <b id="h-night">1</b></p>
+      <p class="slip"><b id="h-score">0</b> <span data-t="pts">pts</span></p>
     </div>
     <div class="hud-mid">
-      <div class="clock"><b id="h-clock">19:00</b><i class="clockbar"><em id="h-clockbar"></em></i></div>
-      <div class="quota"><span data-t="stash">Stash</span> <b id="h-bank">0</b>/<b id="h-quota">12</b><i class="qbar"><em id="h-qbar"></em></i></div>
+      <p class="slip clock"><b id="h-clock">19:00</b><i class="bar"><em id="h-clockbar"></em></i></p>
+      <p class="slip slip--fluoro quota"><span data-t="stash">Stash</span> <b id="h-bank">0</b>/<b id="h-quota">12</b><i class="bar"><em id="h-qbar"></em></i></p>
     </div>
     <div class="hud-right">
-      <div class="hearts" id="h-hearts"></div>
-      <button class="ico" id="b-mute" title="Sound (M)">♪</button>
-      <button class="ico" id="b-pause" title="Pause (P)">❚❚</button>
+      <p class="hearts" id="h-hearts" aria-label="Lives"></p>
+      <button class="key" id="b-mute" type="button" aria-label="Sound"><svg><use href="#i-sound"/></svg></button>
+      <button class="key" id="b-pause" type="button" aria-label="Pause"><svg><use href="#i-pause"/></svg></button>
     </div>
   </div>
   <div class="cheeks" id="cheeks" hidden>
-    <div class="pips" id="h-carry"></div>
+    <div class="pips" id="h-carry" aria-label="Carrying"></div>
     <div class="stam"><em id="h-stam"></em></div>
   </div>
-  <canvas id="mini" class="mini" hidden></canvas>
-  <div class="hint" id="hint" hidden></div>
-  <div class="toasts" id="toasts"></div>
+  <canvas id="mini" class="mini" hidden aria-label="Map of what you have explored"></canvas>
+  <p class="hint" id="hint" hidden></p>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <!-- touch controls -->
   <div class="touch" id="touch" hidden>
     <div class="stick" id="stick"><i id="knob"></i></div>
     <div class="tbtns">
-      <button id="t-sniff" data-t="sniff">Sniff</button>
-      <button id="t-dive" data-t="dive">Dive</button>
-      <button id="t-dash" class="big" data-t="dash">Dash</button>
+      <button id="t-dash" class="key key--big" type="button" data-t="dash">Dash</button>
+      <button id="t-sniff" class="key" type="button" data-t="sniff">Sniff</button>
+      <button id="t-dive" class="key" type="button" data-t="dive">Dive</button>
     </div>
   </div>
 
-  <!-- TITLE -->
-  <section class="screen" id="s-title">
-    <div class="panel title">
-      <div class="lang"><button data-lang="en" class="on">EN</button><button data-lang="zh">中文</button></div>
-      <p class="kicker" data-t="kicker">125th St &amp; Amsterdam Av · Harlem · after dark</p>
-      <h1>Rat<br>Run <span>125</span></h1>
-      <p class="lead" data-t="lead">You are a rat. The city just put its trash out. Grab what you can carry, dodge the patrol's flashlights, the cars and the bodega cat, and stash enough in your burrow before dawn.</p>
-      <ul class="how">
-        <li><kbd>WASD</kbd><kbd>↑↓←→</kbd> <span data-t="h-move">run</span></li>
-        <li><kbd>Shift</kbd> <span data-t="h-dash">dash (uses stamina)</span></li>
-        <li><kbd>E</kbd> <span data-t="h-sniff">sniff out food nearby</span></li>
-        <li><kbd>Space</kbd> <span data-t="h-dive">dive into a subway grate, pop out at another</span></li>
-        <li><i class="tip-wall"></i> <span data-t="h-wall">hug the walls and stay out of the lamplight: you're harder to spot</span></li>
-      </ul>
-      <button class="go" id="b-play" data-t="play">Play</button>
-      <p class="best" id="best"></p>
-      <p class="fine"><span data-t="fine">The streets, buildings, lamps, bins, restaurants and subway entrances are the real place, from NYC Open Data and OpenStreetMap.</span> <a href="https://yz5149-stack.github.io/spatial_ai_gsapp/20261119_rats/" data-t="sim">See the simulation →</a></p>
+  <!-- TITLE: a wall of flyers -->
+  <section class="screen wall" id="s-title">
+    <div class="flyers">
+      <div class="sheet sheet--poster">
+        <h1>Rat Run 125</h1>
+        <p class="lead" data-t="lead">One rat, one night on 125th Street. Raid the trash, cross on the walk signal, dodge the patrol, and stash enough before dawn.</p>
+        <div class="actions">
+          <button class="btn btn--primary" id="b-play" type="button" data-t="play">Play</button>
+          <button class="btn" id="b-howto" type="button" data-t="howto">How to play</button>
+        </div>
+        <p class="best" id="best"></p>
+      </div>
+      <figure class="sheet sheet--photo">
+        <canvas id="photo" aria-label="The real street, from above"></canvas>
+        <figcaption data-t="photoCap">125th Street and Amsterdam Avenue, Harlem: every building, lamp and bin is the real one.</figcaption>
+      </figure>
+      <div class="sheet sheet--fluoro sheet--time">
+        <p class="poster-figure">7 pm</p>
+        <p data-t="timeCap">Bags go out on every block</p>
+      </div>
+      <nav class="sheet sheet--links" aria-label="More">
+        <button class="link" id="b-settings" type="button" data-t="settings">Settings</button>
+        <button class="link" id="b-credits" type="button" data-t="credits">Credits and data</button>
+        <span class="lang" role="group" aria-label="Language"><button class="link" data-lang="en" type="button">English</button><button class="link" data-lang="zh" type="button">中文</button></span>
+      </nav>
     </div>
   </section>
 
-  <!-- NIGHT INTRO / SUMMARY / PERKS / PAUSE / GAME OVER -->
+  <!-- CARDS: night intro, summary, perks, pause, game over, settings, how to play, credits -->
   <section class="screen" id="s-card" hidden>
-    <div class="panel card" id="card"></div>
+    <div class="sheet card" id="card" role="dialog" aria-modal="true"></div>
   </section>
 
-  <div class="loading" id="loading">Loading the street…</div>
-  <script src="config.js?v=1"></script>
-  <script src="tune.js?v=1"></script>
-  <script type="module" src="game.js?v=3"></script>
+  <div class="loading" id="loading" role="status">Loading the street</div>
+  <noscript><p class="noscript">Rat Run 125 needs JavaScript to run.</p></noscript>
+  <script src="config.js?v=2"></script>
+  <script>if (new URLSearchParams(location.search).has('tune')) document.write('<script src="tune.js?v=2"><\/script>');</script>
+  <script type="module" src="game.js?v=4"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@
 const LW = 0.55;              // lane width in cells (3.3 m)
 const STEP = 0.25;            // resampling step along centrelines
 // signal timing, read live from config.js when it is there
-const CF = (k, d) => window.CONFIG?.[k]?.value ?? d;
+const CF = (k, d) => (window.CONFIG?.[k]?.value ?? d) * (window.TUNING_SCALE ? window.TUNING_SCALE(k) : 1);
 const SIGNAL = { get G() { return CF('signal_green', 9); }, get Y() { return CF('signal_yellow', 2.5); }, AR: 1.5 };
 const cycle = () => 2 * (SIGNAL.G + SIGNAL.Y + SIGNAL.AR);
 const TAU = Math.PI * 2;
