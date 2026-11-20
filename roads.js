@@ -9,8 +9,10 @@
 
 const LW = 0.55;              // lane width in cells (3.3 m)
 const STEP = 0.25;            // resampling step along centrelines
-const SIGNAL = { G: 9, Y: 2.5, AR: 1.5 };
-const CYCLE = 2 * (SIGNAL.G + SIGNAL.Y + SIGNAL.AR);
+// signal timing, read live from config.js when it is there
+const CF = (k, d) => window.CONFIG?.[k]?.value ?? d;
+const SIGNAL = { get G() { return CF('signal_green', 9); }, get Y() { return CF('signal_yellow', 2.5); }, AR: 1.5 };
+const cycle = () => 2 * (SIGNAL.G + SIGNAL.Y + SIGNAL.AR);
 const TAU = Math.PI * 2;
 
 // lanes per direction and how the street runs
@@ -82,7 +84,7 @@ export function buildRoads(city, place, rng) {
     const A = roads[a]; const B = roads[b]; if (A.name === B.name) continue;
     for (const hit of crossings(A, B)) {
       let n = nodes.find((q) => Math.hypot(q.x - hit.x, q.y - hit.y) < Math.max(A.hw, B.hw) + 0.8);
-      if (!n) { n = { id: nodes.length, x: hit.x, y: hit.y, legs: [], offset: rng() * CYCLE }; nodes.push(n); }
+      if (!n) { n = { id: nodes.length, x: hit.x, y: hit.y, legs: [], offset: rng() * cycle() }; nodes.push(n); }
       for (const [R, s] of [[A, hit.sa], [B, hit.sb]]) if (!n.legs.some((l) => l.road === R)) n.legs.push({ road: R, s });
     }
   }
@@ -150,19 +152,19 @@ export function buildRoads(city, place, rng) {
   }
   const maskAt = (x, y) => { const mx = Math.floor(x * S4); const my = Math.floor(y * S4); return mx < 0 || my < 0 || mx >= MW || my >= MH ? 0 : mask[my * MW + mx]; };
 
-  return { roads, lanes, nodes, parked, crosswalks, maskAt, LW, CYCLE };
+  return { roads, lanes, nodes, parked, crosswalks, maskAt, LW };
 }
 
 // ---- signals ---------------------------------------------------------------------------------
 // 'G', 'Y' or 'R' for a signal group of a node at time t
 export function light(node, group, t) {
-  const c = (((t + node.offset) % CYCLE) + CYCLE) % CYCLE; const half = CYCLE / 2;
+  const CYCLE = cycle(); const c = (((t + node.offset) % CYCLE) + CYCLE) % CYCLE; const half = CYCLE / 2;
   const local = group === 0 ? c : (c + half) % CYCLE;
   return local < SIGNAL.G ? 'G' : local < SIGNAL.G + SIGNAL.Y ? 'Y' : 'R';
 }
 // seconds until the walk signal across a road of `group` ends (walk = that group's cars on red)
 export function walkLeft(node, group, t) {
-  const c = (((t + node.offset) % CYCLE) + CYCLE) % CYCLE; const half = CYCLE / 2;
+  const CYCLE = cycle(); const c = (((t + node.offset) % CYCLE) + CYCLE) % CYCLE; const half = CYCLE / 2;
   const local = group === 0 ? c : (c + half) % CYCLE; // this group's own phase
   const redFrom = SIGNAL.G + SIGNAL.Y; // red from here to CYCLE; walk from redFrom + AR to CYCLE - AR... keep it simple
   if (local < redFrom + 0.3 || local > CYCLE - SIGNAL.AR) return 0;
@@ -294,13 +296,13 @@ export function drawRoads(g, net, R) {
 const COLORS = ['#ff6f6f', '#ffd36b', '#7fd0ff', '#e7e3ff', '#a7ff8f', '#ffffff', '#f2a65a'];
 
 export function makeTraffic(net, rng, opts) {
-  const T = { cars: [], max: opts.max, truckEvery: opts.truck ? 40 : 0, truckT: opts.truckAt ?? 60, time: rng() * CYCLE * 4, rng };
+  const T = { cars: [], max: opts.max, truckEvery: opts.truck ? 40 : 0, truckT: opts.truckAt ?? 60, time: rng() * cycle() * 4, rng };
   return T;
 }
 
 function spawn(T, net, lane, p, truck = false) {
   const r = lane.road; const sp = r.spec;
-  const vmax = (sp.major ? 4.4 : 3.4) * (truck ? 0.7 : 0.85 + T.rng() * 0.3);
+  const vmax = CF(sp.major ? 'car_speed_avenue' : 'car_speed_street', sp.major ? 4.4 : 3.4) * (truck ? 0.7 : 0.85 + T.rng() * 0.3);
   const car = { lane, p, v: vmax * 0.8, vmax, truck, L: truck ? 1.35 : 0.95, Wd: truck ? 0.48 : 0.42, color: COLORS[Math.floor(T.rng() * COLORS.length)], x: 0, y: 0, ang: 0, honk: 0, brake: 0 };
   place(car); lane.cars.push(car); T.cars.push(car); return car;
 }

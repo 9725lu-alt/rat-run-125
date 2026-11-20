@@ -9,7 +9,7 @@ import { buildRoads, drawRoads, makeTraffic, stepTraffic, warmTraffic, drawSigna
 
 const DATA_URL = new URL('./data/manhattanville.json', import.meta.url).href;
 const R = 16;                 // pixels per cell in the pre-drawn world
-const NIGHT_SECONDS = 150;    // 7 pm -> 5 am
+const C = (k) => window.CONFIG[k].value; // tuning values, read live (config.js)
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -301,14 +301,14 @@ let game = null; let mode = 'title'; let explored;
 const keys = new Set(); const joy = { x: 0, y: 0, on: false, dash: false };
 
 function newGame() {
-  game = { night: 0, score: 0, hearts: 3, maxHearts: 3, totalBanked: 0, p: { speed: 1, cap: 4, vision: 1, sniffR: 18, sniffCd: 6, stealth: 1, stamina: 1 } };
+  game = { night: 0, score: 0, hearts: C('lives'), maxHearts: C('lives'), totalBanked: 0, p: { speed: 1, cap: C('carry_start'), vision: 1, sniffR: C('sniff_range'), sniffCd: C('sniff_cooldown'), stealth: 1, stamina: 1 } };
 }
 function nightSpec(n) {
-  return { quota: [12, 18, 24, 30, 36][n - 1] ?? 36 + (n - 5) * 6, inspectors: Math.min(6, [1, 2, 2, 3, 3][n - 1] ?? 3 + Math.floor((n - 5) / 2)), cars: Math.min(46, 22 + n * 4), truck: n >= 2, cats: n >= 3 ? (n >= 6 ? 2 : 1) : 0 };
+  return { quota: C('quota_first') + (n - 1) * C('quota_step'), inspectors: Math.min(6, [1, 2, 2, 3, 3][n - 1] ?? 3 + Math.floor((n - 5) / 2)), cars: Math.min(46, 22 + n * 4), truck: n >= 2, cats: n >= 3 ? (n >= 6 ? 2 : 1) : 0 };
 }
 
 function startNight() {
-  game.night++; const spec = nightSpec(game.night); const rng = mulberry(20261119 + game.night * 977);
+  game.night++; const spec = nightSpec(game.night); const rng = mulberry(window.CONFIG.seed + game.night * 977);
   Object.assign(game, { spec, t: 0, banked: 0, caughtN: 0, dist: 0, quotaMet: false, dawnWarned: false, toastT: 0, shake: 0, flash: 0, sniffT: 0, sniffCool: 0, ping: [], parts: [], floats: [], time: 0 });
   explored = new Uint8Array(city.N);
   game.rat = { x: burrow.x, y: burrow.y, vx: 0, vy: 0, ang: -Math.PI / 2, carry: 0, stam: 1, inv: 1.5, diving: 0, diveTo: null, diveCool: 0, step: 0, eat: 0, home: true };
@@ -334,7 +334,7 @@ function startNight() {
   for (let k = 0; k < spec.inspectors; k++) { const c = far[Math.floor(rng() * far.length)]; game.ins.push(newHunter('ins', c, rng)); }
   for (let k = 0; k < spec.cats; k++) { const c = far[Math.floor(rng() * far.length)]; game.ins.push(newHunter('cat', c, rng)); }
   // traffic
-  game.traffic = makeTraffic(net, rng, { max: spec.cars, truck: spec.truck, truckAt: NIGHT_SECONDS * 0.45 });
+  game.traffic = makeTraffic(net, rng, { max: spec.cars, truck: spec.truck, truckAt: C('night_seconds') * 0.45 });
   warmTraffic(game.traffic, net, 30);
   game.rng = rng;
   showCard('intro');
@@ -347,7 +347,7 @@ function mulberry(seed) { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5
 // ---------------------------------------------------------------------------------- update
 function update(dt) {
   const g = game; const r = g.rat; g.time += dt;
-  g.t += dt / NIGHT_SECONDS;
+  g.t += dt / C('night_seconds');
   // food appears on schedule
   for (const f of g.food) if (!f.on && g.t >= f.at) {
     f.on = true; f.pop = 1;
@@ -371,9 +371,9 @@ function update(dt) {
     const il = Math.hypot(ix, iy); if (il > 1) { ix /= il; iy /= il; }
     const wantDash = (keys.has('ShiftLeft') || keys.has('ShiftRight') || joy.dash) && il > 0.1;
     const dashing = wantDash && r.stam > 0.02;
-    r.stam = clamp(r.stam + (dashing ? -dt * 0.45 / g.p.stamina : dt * 0.22), 0, 1); r.dashing = dashing;
-    const load = 1 - 0.05 * r.carry;
-    const top = 5.2 * g.p.speed * load * (dashing ? 1.65 : 1);
+    r.stam = clamp(r.stam + (dashing ? -dt * C('stamina_drain') / g.p.stamina : dt * C('stamina_regen')), 0, 1); r.dashing = dashing;
+    const load = Math.max(0.3, 1 - C('load_slowdown') * r.carry);
+    const top = C('rat_speed') * g.p.speed * load * (dashing ? C('dash_boost') : 1);
     const ax = ix * top; const ay = iy * top; const k = 1 - Math.exp(-dt * 14);
     r.vx = lerp(r.vx, ax, k); r.vy = lerp(r.vy, ay, k);
     const ox = r.x; const oy = r.y; moveBody(r, r.vx * dt, r.vy * dt, 0.28);
@@ -386,7 +386,7 @@ function update(dt) {
   r.underCar = r.diving <= 0 && net.parked.some((c) => Math.abs((r.x - c.x) * Math.cos(c.ang) + (r.y - c.y) * Math.sin(c.ang)) < 0.45 && Math.abs(-(r.x - c.x) * Math.sin(c.ang) + (r.y - c.y) * Math.cos(c.ang)) < 0.22);
   r.cross = crossingAt(net, r.x, r.y, g.traffic.time);
   // explore
-  if ((g.time * 5 | 0) !== g.lastEx) { g.lastEx = g.time * 5 | 0; const vr = Math.round(6 * g.p.vision); const x0 = r.x | 0; const y0 = r.y | 0; for (let dy = -vr; dy <= vr; dy++) for (let dx = -vr; dx <= vr; dx++) if (dx * dx + dy * dy <= vr * vr) { const i = cellAt(x0 + dx, y0 + dy); if (i >= 0) explored[i] = 1; } }
+  if ((g.time * 5 | 0) !== g.lastEx) { g.lastEx = g.time * 5 | 0; const vr = Math.round(C('vision') * g.p.vision); const x0 = r.x | 0; const y0 = r.y | 0; for (let dy = -vr; dy <= vr; dy++) for (let dx = -vr; dx <= vr; dx++) if (dx * dx + dy * dy <= vr * vr) { const i = cellAt(x0 + dx, y0 + dy); if (i >= 0) explored[i] = 1; } }
 
   // eat
   r.eat -= dt;
@@ -413,7 +413,7 @@ function update(dt) {
   for (const h of g.ins) updateHunter(h, dt);
   // --- cars
   const hit = stepTraffic(g.traffic, net, dt, { x: r.x, y: r.y, hidden: r.diving > 0 || r.home, onCrosswalk: r.onCrosswalk }, {
-    density: 1 + 0.1 * (g.night - 1), allowTruck: g.spec.truck && g.t > 0.4,
+    density: C('traffic_density') * (1 + 0.1 * (g.night - 1)), allowTruck: g.spec.truck && g.t > 0.4,
     onHonk: (c) => { if (Math.hypot(c.x - r.x, c.y - r.y) < 8) sfx.horn(); },
     onTruck: () => toast(`🚛 ${T('truckMsg')}`),
     onTruckAt: (c) => { for (const f of g.food) if (f.on && f.bites > 0 && f.kind !== 'basket' && f.kind !== 'better' && Math.hypot(f.x - c.x, f.y - c.y) < 2.4) { f.bites = 0; burst(f.x, f.y, '#8a8aa8', 6); } },
@@ -449,7 +449,7 @@ function updateHunter(h, dt) {
     if (cat) {
       if (d < 6 && los(h.x, h.y, r.x, r.y)) { sees = true; rate = (1.4 - d / 6) * 1.6 * (r.dashing ? 1.4 : 1) * g.p.stealth; }
     } else {
-      const range = 9.5; let da = Math.atan2(dy, dx) - h.ang; da = Math.atan2(Math.sin(da), Math.cos(da));
+      const range = C('flashlight_range'); let da = Math.atan2(dy, dx) - h.ang; da = Math.atan2(Math.sin(da), Math.cos(da));
       const inCone = d < range && Math.abs(da) < 0.62; const close = d < 1.6;
       if ((inCone || close) && los(h.x, h.y, r.x, r.y)) {
         sees = true;
@@ -458,17 +458,17 @@ function updateHunter(h, dt) {
     }
   }
   if (h.state !== 'chase') {
-    if (sees) h.meter += rate * dt * 1.4; else h.meter = Math.max(0, h.meter - dt * 0.35);
+    if (sees) h.meter += rate * dt * C('spot_rate'); else h.meter = Math.max(0, h.meter - dt * 0.35);
     if (h.meter >= 1 && h.tired <= 0) {
       h.state = 'chase'; h.chaseT = 0; h.lostT = 0; h.last = { x: r.x, y: r.y }; h.bang = 1.2; h.path = null;
       sfx.alert(); if (!cat) toast(`❗ ${T('seen')}`, 'bad'); g.shake = Math.max(g.shake, 0.25);
     }
   }
-  let speed = cat ? 2.0 : 2.5; let target = null;
+  let speed = cat ? 2.0 : C('inspector_patrol_speed'); let target = null;
   if (h.state === 'chase') {
     h.chaseT += dt;
     if (sees || (d < 12 && !hidden && los(h.x, h.y, r.x, r.y))) { h.last = { x: r.x, y: r.y }; h.lostT = 0; } else h.lostT += dt;
-    speed = cat ? (h.chaseT < 3.5 ? 6.6 : 3) : 4.4 + 0.12 * g.night;
+    speed = cat ? (h.chaseT < 3.5 ? C('cat_chase_speed') : 3) : C('inspector_chase_speed') + 0.12 * g.night;
     target = h.last;
     if (hidden && r.diving > 0) h.lostT += dt * 2;
     if (h.lostT > 2.6 || (cat && h.chaseT > 4.5)) { h.state = 'search'; h.lostT = 0; h.path = null; h.meter = 0.45; if (cat) h.tired = 4; else if (d > 4) floatText(h.x, h.y - 1, '?', '#ffffff'); }
@@ -595,15 +595,15 @@ function render() {
   setT(dctx); dctx.imageSmoothingEnabled = true; dctx.clearRect(0, 0, W, H);
   dctx.globalAlpha = 1 - dawn * 0.65; dctx.drawImage(darkMap, 0, 0, W, H); dctx.globalAlpha = 1;
   dctx.globalCompositeOperation = 'destination-out';
-  hole(dctx, tx, ty, 6 * g.p.vision, 1);
+  hole(dctx, tx, ty, C('vision') * g.p.vision, 1);
   hole(dctx, burrow.x, burrow.y, 2.2, 0.6);
-  for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) cone(dctx, h.x, h.y, h.ang, 9.5, 0.62, 1);
+  for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) cone(dctx, h.x, h.y, h.ang, C('flashlight_range'), 0.62, 1);
   for (const c of g.traffic.cars) if (onScreen(c.x, c.y)) cone(dctx, c.x + Math.cos(c.ang) * 0.45, c.y + Math.sin(c.ang) * 0.45, c.ang, 4.5, 0.32, 0.75);
   dctx.globalCompositeOperation = 'source-over';
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(dark, 0, 0);
   // warm flashlight beams on top
   setT(ctx); ctx.globalCompositeOperation = 'lighter';
-  for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) { const col = h.state === 'chase' ? '255,90,90' : '255,226,140'; coneFill(ctx, h.x, h.y, h.ang, 9.5, 0.62, `rgba(${col},0.22)`); }
+  for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) { const col = h.state === 'chase' ? '255,90,90' : '255,226,140'; coneFill(ctx, h.x, h.y, h.ang, C('flashlight_range'), 0.62, `rgba(${col},0.22)`); }
   ctx.globalCompositeOperation = 'source-over';
   // things that should read above the dark
   drawSignals(ctx, net, g.traffic.time, onScreen);
