@@ -5,6 +5,7 @@
 
 import { buildCity, G, S } from './src/sim/city.js?v=13';
 import { CONFIG } from './src/sim/config.js?v=13';
+import { buildRoads, drawRoads, makeTraffic, stepTraffic, warmTraffic, drawSignals, crossingAt } from './roads.js?v=2';
 
 const DATA_URL = new URL('./data/manhattanville.json', import.meta.url).href;
 const R = 16;                 // pixels per cell in the pre-drawn world
@@ -31,7 +32,7 @@ const WORDS = {
     sim: 'See the simulation →', best: (s, n) => `Best: ${s} pts · reached night ${n}`,
     nightTitle: (n) => `Night ${n}`, goal: 'Stash before dawn', bites: 'bites',
     newThreats: 'Out tonight:', inspectors: (n) => `${n} inspector${n > 1 ? 's' : ''} with flashlights`,
-    cars: 'traffic on every street', truck: 'a night garbage truck (it takes the bags!)', cat: 'the bodega cat',
+    cars: 'traffic, with real lanes and traffic lights', truck: 'a night garbage truck (it takes the bags!)', cat: 'the bodega cat',
     go: 'Go!', dawn: 'Dawn', made: 'You made it!', short: 'Not enough food…',
     stashed: 'stashed', caught: 'caught', km: 'm run',
     pick: 'Pick a perk for tomorrow night', continue: 'Next night', retry: 'Play again', title: 'Title',
@@ -42,7 +43,9 @@ const WORDS = {
     seen: 'Spotted!', lost: 'You lost them', bank: (n, p) => `+${p} · stashed ${n}`,
     quotaMet: 'Enough for tonight! Keep going for bonus.', trash: (name) => `${name} put the trash out`,
     restaurant: 'A restaurant', binsOut: 'Bags are out on every block', full: 'Cheeks full! Head home.',
-    grateHint: 'Space / Dive: into the grate', grateKey: 'Dive', dawnSoon: 'Dawn in one hour. Get home!',
+    grateHint: 'Space / Dive: into the grate', underCar: '🚗 Hiding under a parked car: nobody can see you',
+    walk: (s) => `🚶 WALK ${s}s: cars stop for you on the crosswalk`, dontWalk: '✋ DON\'T WALK: wait for the signal (or risk it)',
+    tipCross: 'Cross at the crosswalks on the WALK signal: drivers stop for you there.', grateKey: 'Dive', dawnSoon: 'Dawn in one hour. Get home!',
     lostCarry: 'Caught out at dawn: you lost what you carried.', truckMsg: 'Garbage truck coming…', lives: 'lives',
     perks: {
       speed: ['Quick feet', 'Run 12% faster'], cap: ['Big cheeks', 'Carry 2 more bites'],
@@ -63,7 +66,7 @@ const WORDS = {
     sim: '查看模拟 →', best: (s, n) => `最高分：${s} · 撑到第 ${n} 夜`,
     nightTitle: (n) => `第 ${n} 夜`, goal: '天亮前囤够', bites: '口',
     newThreats: '今晚出没：', inspectors: (n) => `${n} 名拿手电的巡查员`,
-    cars: '每条街都有车', truck: '夜间垃圾车（会把垃圾袋收走！）', cat: '杂货店的猫',
+    cars: '车流（按真实车道和红绿灯行驶）', truck: '夜间垃圾车（会把垃圾袋收走！）', cat: '杂货店的猫',
     go: '出发！', dawn: '天亮了', made: '过关！', short: '食物不够……',
     stashed: '囤粮', caught: '被抓', km: '米',
     pick: '为明晚选一个能力', continue: '下一夜', retry: '再玩一次', title: '回到标题',
@@ -74,7 +77,9 @@ const WORDS = {
     seen: '被发现了！', lost: '甩掉了', bank: (n, p) => `+${p} · 囤了 ${n} 口`,
     quotaMet: '今晚够了！继续可以拿奖励分。', trash: (name) => `${name} 把垃圾搬出来了`,
     restaurant: '一家餐馆', binsOut: '每个街区都摆出了垃圾袋', full: '腮帮塞满了！快回洞。',
-    grateHint: '空格 / 钻：钻进格栅', grateKey: '钻', dawnSoon: '还有一小时天亮，快回家！',
+    grateHint: '空格 / 钻：钻进格栅', underCar: '🚗 躲在停着的车底下：谁也看不见你',
+    walk: (s) => `🚶 行人绿灯 ${s} 秒：走斑马线车会让你`, dontWalk: '✋ 行人红灯：等一等（或者冒险冲过去）',
+    tipCross: '在斑马线上、行人绿灯时过马路：司机会停车让你。', grateKey: '钻', dawnSoon: '还有一小时天亮，快回家！',
     lostCarry: '天亮时还在外面：嘴里的食物丢了。', truckMsg: '垃圾车来了……', lives: '命',
     perks: {
       speed: ['快腿', '跑速 +12%'], cap: ['大腮帮', '多叼 2 口'],
@@ -120,7 +125,7 @@ const sfx = {
 };
 
 // ---------------------------------------------------------------------------------- city
-let city; let W; let H; let world; let darkMap; let miniBase;
+let net; let city; let W; let H; let world; let darkMap; let miniBase;
 let lamp; let burrow; let grates = []; let lampCells = []; let roadCells = []; let walkCells = [];
 const inB = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 const cellAt = (x, y) => (inB(x, y) ? Math.floor(y) * W + Math.floor(x) : -1);
@@ -175,6 +180,7 @@ function prepCity(place) {
   for (const s of city.subways) addGrate(s.cell, 'subway');
   for (const c of city.corners) addGrate(c.cell, null);
   lampCells = city.poles;
+  net = buildRoads(city, place, mulberry(125));
   lamp = new Float32Array(city.N); const LR = 2.6;
   for (const p of city.poles) { const px = cx(p); const py = cy(p); for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const i = cellAt(px + dx, py + dy); if (i < 0) continue; const d = Math.hypot(cx(i) - px, cy(i) - py); if (d < LR) lamp[i] = Math.max(lamp[i], Math.pow(1 - d / LR, 0.8)); } }
   drawWorld(); drawDark(); drawMiniBase();
@@ -199,7 +205,6 @@ function drawWorld() {
     if (gr === G.WATER) c = '#0b2140';
     else if (gr === G.FENCE) c = '#2b2747';
     else if (gr === G.BLDG) c = '#1a1534';
-    else if (city.road[i]) c = '#1c1a36';
     else if (su === S.LAWN) c = hash(i) < 0.5 ? '#173a33' : '#163631';
     else if (su === S.WOODS) c = '#11302a';
     else if (city.walk[i]) c = city.wall[i] ? '#38325f' : '#2f2a52';
@@ -209,9 +214,9 @@ function drawWorld() {
   bg.putImageData(bimg, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(base, 0, 0, W * R, H * R);
   // a little grain so the pavement doesn't look like plastic
   for (let k = 0; k < W * H * 3; k++) { const i = (k * 7919) % (W * H * R * R); g.fillStyle = hash(k) < 0.5 ? 'rgba(255,255,255,.03)' : 'rgba(0,0,0,.08)'; g.fillRect((i % (W * R)), ((i / (W * R)) | 0) % (H * R), 2, 2); }
-  // lane markings
-  g.fillStyle = 'rgba(255,214,107,.28)';
-  for (const l of city.lanes) for (let k = 0; k < l.cells.length; k += 5) { const i = l.cells[k]; g.fillRect((i % W) * R + R / 2 - 2, ((i / W) | 0) * R + R / 2 - 1, 4, 2); }
+  // the streets: kerbs, lanes, markings, stop lines and crosswalks; then parked cars
+  drawRoads(g, net, R);
+  g.save(); g.scale(R, R); for (const c of net.parked) drawCarOn(g, { ...c, L: 0.9, Wd: 0.4, parked: true }); g.restore();
   // lamp glow
   g.globalCompositeOperation = 'lighter';
   for (const p of city.poles) {
@@ -270,7 +275,7 @@ function drawMiniBase() {
   const g = miniBase.getContext('2d'); const img = g.createImageData(W, H);
   for (let i = 0; i < city.N; i++) {
     let c = [16, 13, 38];
-    if (city.ground[i] === G.BLDG) c = [58, 48, 100]; else if (city.road[i]) c = [40, 36, 74]; else if (city.walk[i]) c = [70, 62, 120];
+    if (city.ground[i] === G.BLDG) c = [58, 48, 100]; else if (net.maskAt((i % W) + 0.5, ((i / W) | 0) + 0.5)) c = [34, 30, 60]; else if (city.walk[i]) c = [70, 62, 120];
     if (city.surface[i] === S.LAWN || city.surface[i] === S.WOODS) c = [30, 80, 66];
     img.data.set([...c, 255], i * 4);
   }
@@ -299,7 +304,7 @@ function newGame() {
   game = { night: 0, score: 0, hearts: 3, maxHearts: 3, totalBanked: 0, p: { speed: 1, cap: 4, vision: 1, sniffR: 18, sniffCd: 6, stealth: 1, stamina: 1 } };
 }
 function nightSpec(n) {
-  return { quota: [12, 18, 24, 30, 36][n - 1] ?? 36 + (n - 5) * 6, inspectors: Math.min(6, [1, 2, 2, 3, 3][n - 1] ?? 3 + Math.floor((n - 5) / 2)), cars: Math.min(18, 4 + n * 2), truck: n >= 2, cats: n >= 3 ? (n >= 6 ? 2 : 1) : 0 };
+  return { quota: [12, 18, 24, 30, 36][n - 1] ?? 36 + (n - 5) * 6, inspectors: Math.min(6, [1, 2, 2, 3, 3][n - 1] ?? 3 + Math.floor((n - 5) / 2)), cars: Math.min(46, 22 + n * 4), truck: n >= 2, cats: n >= 3 ? (n >= 6 ? 2 : 1) : 0 };
 }
 
 function startNight() {
@@ -329,18 +334,13 @@ function startNight() {
   for (let k = 0; k < spec.inspectors; k++) { const c = far[Math.floor(rng() * far.length)]; game.ins.push(newHunter('ins', c, rng)); }
   for (let k = 0; k < spec.cats; k++) { const c = far[Math.floor(rng() * far.length)]; game.ins.push(newHunter('cat', c, rng)); }
   // traffic
-  game.cars = [];
-  for (let k = 0; k < spec.cars; k++) game.cars.push(newCar(rng, false));
-  if (spec.truck) { const t = newCar(rng, true); t.wait = NIGHT_SECONDS * 0.5; game.cars.push(t); }
+  game.traffic = makeTraffic(net, rng, { max: spec.cars, truck: spec.truck, truckAt: NIGHT_SECONDS * 0.45 });
+  warmTraffic(game.traffic, net, 30);
   game.rng = rng;
   showCard('intro');
 }
 function newHunter(kind, cell, rng) {
   return { kind, x: cx(cell), y: cy(cell), ang: rng() * TAU, state: 'patrol', path: null, pi: 0, meter: 0, last: null, lostT: 0, repath: 0, tired: 0, chaseT: 0, wob: rng() * 10, bang: 0 };
-}
-function newCar(rng, truck) {
-  const lanes = city.lanes; const lane = lanes[Math.floor(rng() * lanes.length)];
-  return { lane, pos: truck ? 0 : rng() * lane.cells.length, speed: truck ? 3.2 : 6 + rng() * 4, truck, wait: truck ? 0 : rng() * 4, color: ['#ff6f6f', '#ffd36b', '#7fd0ff', '#e7e3ff', '#a7ff8f'][Math.floor(rng() * 5)], x: 0, y: 0, ang: 0, honk: 0 };
 }
 function mulberry(seed) { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -382,7 +382,9 @@ function update(dt) {
     if (dashing && Math.random() < dt * 30) g.parts.push({ x: r.x - Math.cos(r.ang) * 0.3, y: r.y - Math.sin(r.ang) * 0.3, vx: (Math.random() - 0.5), vy: (Math.random() - 0.5), life: 0.4, max: 0.4, c: 'rgba(200,190,255,.5)', s: 0.12 });
   }
   const rc = cellAt(r.x, r.y);
-  r.onWall = rc >= 0 && city.wall[rc] === 1; r.light = rc >= 0 ? lamp[rc] : 0; r.onRoad = rc >= 0 && city.road[rc] === 1;
+  r.onWall = rc >= 0 && city.wall[rc] === 1; r.light = rc >= 0 ? lamp[rc] : 0; const m = net.maskAt(r.x, r.y); r.onRoad = m > 0; r.onCrosswalk = m === 2;
+  r.underCar = r.diving <= 0 && net.parked.some((c) => Math.abs((r.x - c.x) * Math.cos(c.ang) + (r.y - c.y) * Math.sin(c.ang)) < 0.45 && Math.abs(-(r.x - c.x) * Math.sin(c.ang) + (r.y - c.y) * Math.cos(c.ang)) < 0.22);
+  r.cross = crossingAt(net, r.x, r.y, g.traffic.time);
   // explore
   if ((g.time * 5 | 0) !== g.lastEx) { g.lastEx = g.time * 5 | 0; const vr = Math.round(6 * g.p.vision); const x0 = r.x | 0; const y0 = r.y | 0; for (let dy = -vr; dy <= vr; dy++) for (let dx = -vr; dx <= vr; dx++) if (dx * dx + dy * dy <= vr * vr) { const i = cellAt(x0 + dx, y0 + dy); if (i >= 0) explored[i] = 1; } }
 
@@ -410,7 +412,13 @@ function update(dt) {
   // --- hunters
   for (const h of g.ins) updateHunter(h, dt);
   // --- cars
-  for (const c of g.cars) updateCar(c, dt);
+  const hit = stepTraffic(g.traffic, net, dt, { x: r.x, y: r.y, hidden: r.diving > 0 || r.home, onCrosswalk: r.onCrosswalk }, {
+    density: 1 + 0.1 * (g.night - 1), allowTruck: g.spec.truck && g.t > 0.4,
+    onHonk: (c) => { if (Math.hypot(c.x - r.x, c.y - r.y) < 8) sfx.horn(); },
+    onTruck: () => toast(`🚛 ${T('truckMsg')}`),
+    onTruckAt: (c) => { for (const f of g.food) if (f.on && f.bites > 0 && f.kind !== 'basket' && f.kind !== 'better' && Math.hypot(f.x - c.x, f.y - c.y) < 2.4) { f.bites = 0; burst(f.x, f.y, '#8a8aa8', 6); } },
+  });
+  if (hit && r.inv <= 0 && r.diving <= 0 && !r.home && mode === 'play') caught({ kind: 'car', x: hit.x, y: hit.y });
 
   // particles
   for (const p of g.parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; p.life -= dt; }
@@ -433,7 +441,7 @@ function moveBody(e, dx, dy, rad) {
 function updateHunter(h, dt) {
   const g = game; const r = g.rat; const cat = h.kind === 'cat';
   const dx = r.x - h.x; const dy = r.y - h.y; const d = Math.hypot(dx, dy);
-  const hidden = r.diving > 0 || r.inv > 0 || (r.home && r.carry === 0) || r.home;
+  const hidden = r.diving > 0 || r.inv > 0 || r.home || r.underCar;
   h.bang = Math.max(0, h.bang - dt); h.tired = Math.max(0, h.tired - dt);
   // can it see the rat?
   let sees = false; let rate = 0;
@@ -493,25 +501,6 @@ function updateHunter(h, dt) {
   }
 }
 const turn = (a, b, k) => { let d = b - a; d = Math.atan2(Math.sin(d), Math.cos(d)); return a + d * Math.min(1, k); };
-
-function updateCar(c, dt) {
-  const g = game; const r = g.rat;
-  if (c.wait > 0) { c.wait -= dt; c.x = -99; return; }
-  c.pos += c.speed * dt;
-  if (c.pos >= c.lane.cells.length - 1) { Object.assign(c, newCar(g.rng, c.truck)); if (c.truck) c.wait = 6 + g.rng() * 10; return; }
-  const k = Math.floor(c.pos); const f = c.pos - k; const a = c.lane.cells[k]; const b = c.lane.cells[Math.min(k + 1, c.lane.cells.length - 1)];
-  const k2 = Math.min(k + 3, c.lane.cells.length - 1); const ahead = c.lane.cells[k2];
-  c.x = lerp(cx(a), cx(b), f); c.y = lerp(cy(a), cy(b), f);
-  const ta = Math.atan2(cy(ahead) - cy(a), cx(ahead) - cx(a)); c.ang = turn(c.ang || ta, ta, dt * 6);
-  if (c.truck) {
-    if (!c.said) { c.said = true; toast(`🚛 ${T('truckMsg')}`); }
-    for (const f2 of g.food) if (f2.on && f2.bites > 0 && f2.kind !== 'basket' && f2.kind !== 'better' && Math.hypot(f2.x - c.x, f2.y - c.y) < 2.2) { f2.bites = 0; burst(f2.x, f2.y, '#8a8aa8', 6); }
-  }
-  const d = Math.hypot(r.x - c.x, r.y - c.y);
-  if (d < 5 && r.onRoad && c.honk <= 0) { c.honk = 3; sfx.horn(); }
-  c.honk -= dt;
-  if (d < (c.truck ? 0.9 : 0.7) && r.diving <= 0 && r.inv <= 0 && !r.home) caught({ kind: 'car', x: c.x, y: c.y });
-}
 
 function caught(h) {
   const g = game; const r = g.rat; const kind = h.kind;
@@ -587,11 +576,12 @@ function render() {
   // food
   for (const f of g.food) if (f.on && onScreen(f.x, f.y)) drawFood(f, t);
   // cars
-  for (const c of g.cars) if (c.x > -50 && onScreen(c.x, c.y)) drawCar(c);
+  for (const c of g.traffic.cars) if (onScreen(c.x, c.y)) drawCar(c);
   // hunters
   for (const h of g.ins) if (onScreen(h.x, h.y)) (h.kind === 'cat' ? drawCat(h, t) : drawInspector(h, t));
   // rat
   if (r.diving <= 0) drawRat(r, t);
+  if (r.underCar) for (const c of net.parked) if (Math.hypot(c.x - r.x, c.y - r.y) < 1) { ctx.globalAlpha = 0.72; drawCarOn(ctx, { ...c, L: 0.9, Wd: 0.4, parked: true }); ctx.globalAlpha = 1; }
   // particles
   for (const p of g.parts) {
     if (p.ring) { const q = 1 - p.life / p.max; ctx.strokeStyle = `rgba(67,230,197,${0.6 * (1 - q)})`; ctx.lineWidth = 0.12; ctx.beginPath(); ctx.arc(p.x, p.y, p.R * q, 0, TAU); ctx.stroke(); continue; }
@@ -608,7 +598,7 @@ function render() {
   hole(dctx, tx, ty, 6 * g.p.vision, 1);
   hole(dctx, burrow.x, burrow.y, 2.2, 0.6);
   for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) cone(dctx, h.x, h.y, h.ang, 9.5, 0.62, 1);
-  for (const c of g.cars) if (c.x > -50 && onScreen(c.x, c.y)) cone(dctx, c.x + Math.cos(c.ang) * 0.6, c.y + Math.sin(c.ang) * 0.6, c.ang, 6, 0.35, 0.8);
+  for (const c of g.traffic.cars) if (onScreen(c.x, c.y)) cone(dctx, c.x + Math.cos(c.ang) * 0.45, c.y + Math.sin(c.ang) * 0.45, c.ang, 4.5, 0.32, 0.75);
   dctx.globalCompositeOperation = 'source-over';
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(dark, 0, 0);
   // warm flashlight beams on top
@@ -616,6 +606,8 @@ function render() {
   for (const h of g.ins) if (h.kind === 'ins' && onScreen(h.x, h.y)) { const col = h.state === 'chase' ? '255,90,90' : '255,226,140'; coneFill(ctx, h.x, h.y, h.ang, 9.5, 0.62, `rgba(${col},0.22)`); }
   ctx.globalCompositeOperation = 'source-over';
   // things that should read above the dark
+  drawSignals(ctx, net, g.traffic.time, onScreen);
+  for (const c of g.traffic.cars) if (c.brake > 0.3 && onScreen(c.x, c.y)) { ctx.globalCompositeOperation = 'lighter'; const bx = c.x - Math.cos(c.ang) * c.L / 2; const by = c.y - Math.sin(c.ang) * c.L / 2; const gg = ctx.createRadialGradient(bx, by, 0, bx, by, 0.8); gg.addColorStop(0, 'rgba(255,40,50,.5)'); gg.addColorStop(1, 'rgba(255,40,50,0)'); ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(bx, by, 0.8, 0, TAU); ctx.fill(); ctx.globalCompositeOperation = 'source-over'; }
   for (const h of g.ins) if (onScreen(h.x, h.y)) drawAwareness(h, t);
   for (const p of g.ping) { const f = p.f; if (f.bites <= 0) continue; const a = clamp(p.life, 0, 1); ctx.strokeStyle = `rgba(255,207,63,${a})`; ctx.lineWidth = 0.1; ctx.beginPath(); ctx.arc(f.x, f.y, 0.9 + Math.sin(t * 6) * 0.15, 0, TAU); ctx.stroke(); }
   if (r.diving <= 0 && r.carry > 0) drawCarry(r);
@@ -680,7 +672,7 @@ function drawFood(f, t) {
 }
 function drawRat(r, t) {
   const blink = r.inv > 0 && Math.sin(t * 30) > 0; if (blink) ctx.globalAlpha = 0.45;
-  ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.ang); ctx.scale(1.4, 1.4);
+  ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.ang); ctx.scale(1.15, 1.15);
   const run = Math.sin(r.step * 2.2); const sz = 1 + r.carry * 0.03;
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(0.05, 0.08, 0.42, 0.24, 0, 0, TAU); ctx.fill();
   // tail
@@ -728,17 +720,19 @@ function drawCat(h, t) {
   const glow = h.state === 'chase' ? '#ff4d5e' : '#b6ff5a'; for (const s of [-1, 1]) { ctx.fillStyle = glow; ctx.beginPath(); ctx.ellipse(0.52, s * 0.08, 0.05, 0.035, 0, 0, TAU); ctx.fill(); }
   ctx.restore();
 }
-function drawCar(c) {
-  ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.ang);
-  const L = c.truck ? 1.6 : 1.1; const Wd = c.truck ? 0.8 : 0.62;
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(-L / 2 + 0.08, -Wd / 2 + 0.12, L, Wd);
-  ctx.fillStyle = c.truck ? '#e8e8f0' : c.color; roundRect(-L / 2, -Wd / 2, L, Wd, 0.14); ctx.fill();
-  if (c.truck) { ctx.fillStyle = '#2bb673'; ctx.fillRect(-L / 2, -Wd / 2, L * 0.65, Wd); ctx.fillStyle = '#fff'; ctx.font = '800 0.3px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('DSNY', -0.25, 0.02); }
-  else { ctx.fillStyle = 'rgba(20,30,60,.85)'; ctx.fillRect(0.05, -Wd / 2 + 0.07, 0.25, Wd - 0.14); ctx.fillRect(-0.4, -Wd / 2 + 0.08, 0.16, Wd - 0.16); }
-  ctx.fillStyle = '#fff6c0'; ctx.fillRect(L / 2 - 0.06, -Wd / 2 + 0.05, 0.06, 0.12); ctx.fillRect(L / 2 - 0.06, Wd / 2 - 0.17, 0.06, 0.12);
-  ctx.fillStyle = '#ff3040'; ctx.fillRect(-L / 2, -Wd / 2 + 0.05, 0.05, 0.1); ctx.fillRect(-L / 2, Wd / 2 - 0.15, 0.05, 0.1);
-  ctx.restore();
+function drawCar(c) { drawCarOn(ctx, c); }
+function drawCarOn(cx2, c) {
+  cx2.save(); cx2.translate(c.x, c.y); cx2.rotate(c.ang);
+  const L = c.L; const Wd = c.Wd;
+  cx2.fillStyle = 'rgba(0,0,0,.45)'; cx2.fillRect(-L / 2 + 0.06, -Wd / 2 + 0.08, L, Wd);
+  cx2.fillStyle = c.truck ? '#e8e8f0' : c.color; rr(cx2, -L / 2, -Wd / 2, L, Wd, 0.1); cx2.fill();
+  if (c.truck) { cx2.fillStyle = '#2bb673'; cx2.fillRect(-L / 2, -Wd / 2, L * 0.66, Wd); cx2.fillStyle = '#fff'; cx2.font = '800 0.2px Inter, sans-serif'; cx2.textAlign = 'center'; cx2.textBaseline = 'middle'; cx2.fillText('DSNY', -L * 0.17, 0.01); }
+  else { cx2.fillStyle = 'rgba(20,30,60,.85)'; cx2.fillRect(0.04, -Wd / 2 + 0.05, L * 0.22, Wd - 0.1); cx2.fillRect(-L * 0.38, -Wd / 2 + 0.06, L * 0.14, Wd - 0.12); cx2.fillStyle = 'rgba(255,255,255,.12)'; cx2.fillRect(-L * 0.12, -Wd / 2 + 0.06, L * 0.16, Wd - 0.12); }
+  if (!c.parked) { cx2.fillStyle = '#fff6c0'; cx2.fillRect(L / 2 - 0.05, -Wd / 2 + 0.03, 0.05, 0.09); cx2.fillRect(L / 2 - 0.05, Wd / 2 - 0.12, 0.05, 0.09); }
+  cx2.fillStyle = c.brake > 0.3 ? '#ff2030' : '#8a1820'; cx2.fillRect(-L / 2, -Wd / 2 + 0.03, 0.05, 0.08); cx2.fillRect(-L / 2, Wd / 2 - 0.11, 0.05, 0.08);
+  cx2.restore();
 }
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
 function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function drawAwareness(h, t) {
   if (h.state === 'chase' || h.bang > 0) { const b = 1 + Math.max(0, h.bang - 0.9) * 2; ctx.font = `900 ${0.9 * b}px Inter, sans-serif`; ctx.textAlign = 'center'; ctx.lineWidth = 0.14; ctx.strokeStyle = '#000'; ctx.strokeText('!', h.x, h.y - 0.8); ctx.fillStyle = '#ff4d5e'; ctx.fillText('!', h.x, h.y - 0.8); return; }
@@ -771,7 +765,7 @@ function hud() {
   const pips = `${r.carry}/${g.p.cap}`; if ($('h-carry').dataset.v !== pips) { $('h-carry').innerHTML = Array.from({ length: g.p.cap }, (_, k) => `<i class="${k < r.carry ? 'full' : ''}"></i>`).join(''); $('h-carry').dataset.v = pips; }
   $('h-stam').style.width = `${r.stam * 100}%`; $('h-stam').classList.toggle('low', r.stam < 0.25);
   const nearG = r.diving <= 0 && grates.some((q) => Math.hypot(q.x - r.x, q.y - r.y) < 1.1) && r.diveCool <= 0;
-  const hint = nearG ? T('grateHint') : '';
+  const hint = nearG ? T('grateHint') : r.underCar ? T('underCar') : r.cross ? (r.cross.walk ? T('walk')(Math.ceil(r.cross.left)) : T('dontWalk')) : '';
   if ($('hint').textContent !== hint) { $('hint').textContent = hint; $('hint').hidden = !hint; }
   $('t-sniff').classList.toggle('cool', g.sniffCool > 0); $('t-dive').classList.toggle('cool', !nearG);
 }
@@ -808,7 +802,7 @@ function showCard(kind, extra) {
     html = `<h2>${T('paused')}</h2><button class="go" id="c-resume">${T('resume')}</button><button class="go alt" id="c-title">${T('quit')}</button>`;
   }
   c.innerHTML = html; $('s-card').hidden = false; setPlaying(kind === 'pause');
-  $('c-go')?.addEventListener('click', () => { sfx.click(); $('s-card').hidden = true; mode = 'play'; setPlaying(true); camX = game.rat.x; camY = game.rat.y; toast(`🌙 ${T('nightTitle')(game.night)}`, 'big'); last = performance.now(); });
+  $('c-go')?.addEventListener('click', () => { sfx.click(); $('s-card').hidden = true; mode = 'play'; setPlaying(true); camX = game.rat.x; camY = game.rat.y; toast(`🌙 ${T('nightTitle')(game.night)}`, 'big'); if (game.night === 1) setTimeout(() => toast(`🚦 ${T('tipCross')}`, 'good'), 1500); last = performance.now(); });
   $('c-resume')?.addEventListener('click', resume);
   $('c-retry')?.addEventListener('click', () => { sfx.click(); newGame(); startNight(); });
   $('c-title')?.addEventListener('click', () => { sfx.click(); $('s-card').hidden = true; mode = 'title'; setPlaying(false); $('s-title').hidden = false; showBest(); });
@@ -887,6 +881,6 @@ function titleBackdrop(t) {
     const place = await fetch(DATA_URL).then((r) => r.json());
     prepCity(place); resize();
     $('loading').hidden = true; requestAnimationFrame(frame);
-    window.__ratrun = { get game() { return game; }, get mode() { return mode; }, city: () => city, grates: () => grates, burrow: () => burrow };
+    window.__net = net; window.__ratrun = { get game() { return game; }, get mode() { return mode; }, city: () => city, grates: () => grates, burrow: () => burrow };
   } catch (err) { $('loading').textContent = `Could not load the street (${err.message}).`; console.error(err); }
 }());
